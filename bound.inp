@@ -1,0 +1,10 @@
+'INPUT TABLE','RHDBCS',.TRUE./
+8,11,'rhdbcs.inp',.FALSE.,0 / from hd23bc.out (CP1)
+ 
+'TIME VAR.','RIHPVST',.TRUE./
+'RHDBCS', 'IHPRES'/
+0.0,.TRUE./
+'INLETHDR', 'PRESS',.FALSE./
+/
+
+

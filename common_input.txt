@@ -1,0 +1,3 @@
+#common input files list
+bound.inp rhdbcs.inp pwrtab.pwr 
+
