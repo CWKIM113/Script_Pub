@@ -25,7 +25,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
-
+import subprocess
 
 # ============================================================
 # Configuration
@@ -878,6 +878,95 @@ def prepare_one_cp(
 
 
 # ============================================================
+# Execution Function
+# ============================================================
+
+def ask_extra_run_arguments() -> str:
+    """Ask for optional arguments passed to every runcat batch."""
+    return input(
+        "runcat 추가 입력 인수 (없으면 Enter): "
+    ).strip()
+
+
+def run_cathena_jobs(jobs: list[tuple], extra_args: str) -> list[dict]:
+    """
+    Launch all CATHENA jobs and collect successful runs independently.
+
+    Each job:
+        (working_directory, relative_batch_path, input_argument, description)
+
+    The batch file is called from the job's working directory.
+    """
+    processes = []
+    successful_runs = []
+
+    print("\nStarting CATHENA runs...")
+
+    for run_dir, batch_relative, input_arg, description in jobs:
+        batch_path = (run_dir / batch_relative).resolve()
+
+        if not batch_path.is_file():
+            print(f"ERROR: {description}: batch file not found: {batch_path}")
+            continue
+
+        command = f'call "{batch_relative}" "{input_arg}"'
+        if extra_args:
+            command += f" {extra_args}"
+
+        print(f"\nSTART: {description}")
+        print(f"  Working folder: {run_dir}")
+        print(f"  Command: {command}")
+
+        try:
+            process = subprocess.Popen(
+                ["cmd.exe", "/d", "/c", command],
+                cwd=str(run_dir),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+            processes.append({
+                "process": process,
+                "description": description,
+                "run_dir": run_dir,
+                "input_arg": input_arg,
+            })
+
+        except Exception as error:
+            print(f"ERROR: {description}: could not start: {error}")
+
+    print("\nWaiting for CATHENA runs...")
+
+    for item in processes:
+        process = item["process"]
+        description = item["description"]
+
+        try:
+            return_code = process.wait()
+
+            if return_code == 0:
+                print(f"SUCCESS: {description}")
+                successful_runs.append({
+                    "description": description,
+                    "run_dir": item["run_dir"],
+                    "input_arg": item["input_arg"],
+                })
+            else:
+                print(
+                    f"ERROR: {description}: "
+                    f"runcat returned code {return_code}"
+                )
+
+        except Exception as error:
+            print(f"ERROR: {description}: {error}")
+
+    print(
+        f"\nCATHENA runs finished: "
+        f"{len(successful_runs)} successful / {len(jobs)} requested"
+    )
+
+    return successful_runs
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -1021,7 +1110,58 @@ def main():
                 )
 
     print("\n입력 파일 준비가 완료되었습니다.")
-    print("runcat 실행 및 완료 모니터링은 아직 포함되어 있지 않습니다.")
+
+    # Ask additional arguments only once.
+    extra_args = ask_extra_run_arguments()
+
+    # Build independent execution jobs.
+    jobs = []
+
+    if len(selected_cps) > 1:
+        # Multiple CPs:
+        # Run from CP# folder using runcat3561_ps1.bat.
+        # The channel folder has already been prepared under CP#.
+        for cp in selected_cps:
+            cp_root = target_dirs[cp]
+
+            for channel_name, input_files, source_channel_dir in channel_sources:
+                jobs.append((
+                    cp_root,
+                    r"..\runcat3561_ps1.bat",
+                    channel_name,
+                    f"CP{cp} / {channel_name}",
+                ))
+
+    else:
+        # Single CP:
+        # No CP# folder is created.
+        # Run from the input-name folder using runcat3561.bat.
+        cp = selected_cps[0]
+
+        for channel_name, input_files, source_channel_dir in channel_sources:
+            run_dir = target_dirs[cp] / channel_name
+
+            for input_file in input_files:
+                jobs.append((
+                    run_dir,
+                    r"..\runcat3561.bat",
+                    input_file.stem,
+                    f"{channel_name} / {input_file.name}",
+                ))
+
+    # Execute all jobs. A failed run does not prevent other runs.
+    successful_runs = run_cathena_jobs(jobs, extra_args)
+
+    # Only successful runs are eligible for result organization.
+    if successful_runs:
+        print("\nSuccessful runs available for result organization:")
+        for result in successful_runs:
+            print(f"  {result['description']} : {result['run_dir']}")
+
+        # Result-file organization will use successful_runs only.
+        # The exact result-file selection/copying rules remain to be added.
+    else:
+        print("\nNo successful runs. Nothing to organize.")
 
 
 if __name__ == "__main__":
